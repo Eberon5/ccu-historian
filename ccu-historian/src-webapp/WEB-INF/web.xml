@@ -13,7 +13,7 @@
 	</welcome-file-list>
 	<servlet>
 		<servlet-name>Template</servlet-name>
-		<servlet-class>mdz.ccuhistorian.TemplateServlet</servlet-class>
+		<servlet-class>mdz.ccuhistorian.webapp.TemplateServlet</servlet-class>
 		<init-param>
       		<param-name>generated.by</param-name>
       		<param-value>false</param-value>
@@ -31,12 +31,28 @@
 	</servlet-mapping>
 	<servlet>
 		<servlet-name>Groovy</servlet-name>
-		<servlet-class>mdz.ccuhistorian.GroovyServlet</servlet-class>
+		<servlet-class>mdz.ccuhistorian.webapp.GroovyServlet</servlet-class>
+		<!-- Keep the URL patterns for this servlet aligned.  -->
+		<init-param>
+			<param-name>resource.name.regex</param-name>
+			<param-value>^/query/(jsonrpc|csv|trend)$</param-value>
+		</init-param>
+		<init-param>
+			<param-name>resource.name.replacement</param-name>
+			<param-value>$0\.gy</param-value>
+		</init-param>
+		<init-param>
+			<param-name>resource.name.replace.all</param-name>
+			<param-value>false</param-value>
+		</init-param>
 	</servlet>
 	<servlet-mapping>
 		<servlet-name>Groovy</servlet-name>
 		<url-pattern>*.groovy</url-pattern>
 		<url-pattern>*.gy</url-pattern>
+		<url-pattern>/query/trend</url-pattern>
+		<url-pattern>/query/csv</url-pattern>
+		<url-pattern>/query/jsonrpc</url-pattern>
 	</servlet-mapping>
 	<filter>
         <filter-name>cross-origin</filter-name>

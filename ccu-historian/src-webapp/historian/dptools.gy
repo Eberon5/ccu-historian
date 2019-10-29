@@ -1,0 +1,313 @@
+/*
+    CCU-Historian, a long term archive for the HomeMatic CCU
+    Copyright (C) 2011-2018 MDZ (info@ccu-historian.de)
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+import mdz.Exceptions
+import mdz.ccuhistorian.webapp.TextFormat
+
+// setup page
+def renderer=new mdz.ccuhistorian.webapp.PageRenderer(servlet: this)
+
+def displaySuccess(html, msg) {
+	html.div(class:'alert alert-success', role:'alert') {
+		span class:'glyphicon glyphicon-exclamation-sign'
+		mkp.yield ' ' + msg
+	}
+}
+
+def displayError(html, msg, e=null) {
+	html.div(class:'alert alert-danger', role:'alert') {
+		span class:'glyphicon glyphicon-exclamation-sign'
+		mkp.yield ' ' + msg
+		if (e) {
+			button class:'btn btn-default', type:'button', 'data-toggle':'collapse',
+				'data-target':'#error-details', 'Details'
+			div(class:'collapse', id:'error-details') {
+				pre Exceptions.getStackTrace(e)
+			}
+		}
+	}
+}
+
+renderer.head={
+	title 'CCU-Historian: Datenpunktwerkzeuge'
+}
+
+renderer.content={
+
+	// resolve data points
+	def dataPoints=request.parameterMap.findAll { name, value ->
+		name.startsWith('dp')
+	}.collectEntries { name, value ->
+		try {
+			def row=name.substring(2).toInteger()
+			[row, value]
+		} catch (NumberFormatException e) {
+			throw new IllegalArgumentException('Parameter name dp... (data point) ends not with a number: ' + name)
+		}
+	}.sort { a, b ->
+		// keep specified order of data points 
+		a.key <=> b.key
+	}.collect { row, idxTxt ->
+		def id
+		try {
+			id=idxTxt[0].toInteger()
+		} catch (NumberFormatException e) {
+			throw new IllegalArgumentException("Parameter dp$row is not a data point ID: ${idxTxt[0]}")
+		}
+		def dp=database.getDataPoint(id)
+		if (!dp)
+			throw new IllegalArgumentException("Data point ID not found: $id")
+		dp
+	}
+
+	// no data points alert
+	if (!dataPoints) {
+		div(class:'alert alert-danger', role:'alert', style:'margin-top: 0.5em') {
+			span class:'glyphicon glyphicon-exclamation-sign'
+			mkp.yield ' Es wurden keine Datenpunkte ausgewählt!'
+		}
+		return
+	} 
+		
+	// execute tool
+	switch(params.tool) {
+		case 'delete-datapoint': 
+			dataPoints.each { dp ->
+				try {
+					database.deleteDataPoint(dp)
+					displaySuccess(html, "Datenpunkt $dp.displayName wurde inkl. Historie gelöscht!")
+				} catch (e) {
+					displayError(html, "Datenpunkt $dp.displayName konnte nicht gelöscht werden!", e)
+				}
+			}
+			return
+			
+		case 'delete-history':
+			dataPoints.each { dp ->
+				try {
+					def rows=database.deleteTimeSeries(dp, null, null)
+					displaySuccess(html, "Die Historie vom Datenpunkt $dp.displayName wurde gelöscht ($rows Einträge)!")
+				} catch (e) {
+					displayError(html, "Die Historie vom Datenpunkt $dp.displayName konnte nicht gelöscht werden!", e)
+				}
+			}
+			return
+			
+		case 'delete-range':
+			// validate parameters
+			def begin=params.b?TextFormat.parseDate(params.b):null
+			def end=params.e?TextFormat.parseDate(params.e):null
+			if (begin==null && end==null) {
+				displayError(html, 'Es wurde weder ein Beginnzeitpunkt noch ein Endzeitpunkt für das Löschen angegeben!')
+				return
+			}
+			// delete time ranges
+			dataPoints.each { dp ->
+				try {
+					def rows=database.deleteTimeSeries(dp, begin, end)
+					def beginTxt=begin ? TextFormat.formatDate(begin) : 'k.A.'
+					def endTxt=end ? TextFormat.formatDate(end) : 'k.A.'
+					displaySuccess(html, "Der Zeitbereich (Beginn: $beginTxt, Ende: $endTxt) vom Datenpunkt $dp.displayName " +
+						"wurde gelöscht ($rows Einträge)!")
+				} catch (e) {
+					displayError(html, "Der Zeitbereich vom Datenpunkt $dp.displayName konnte nicht gelöscht werden!", e)
+				}
+			}
+			return
+
+		case 'copy-history':
+			// validate parameters
+			if (dataPoints.size()!=2) {
+				displayError(html, 'Es müssen für das Kopieren exakt zwei Datenpunkte angegeben werden!')
+				return
+			}
+			def (sourceDp, destDp)=dataPoints
+			if (sourceDp.idx==destDp.idx) {
+				displayError(html, 'Quell- und Zieldatenpunkt müssen sich für das Kopieren unterscheiden!')
+				return
+			}
+			if (sourceDp.historyString!=destDp.historyString) {
+				displayError(html, "Die Datenpunkte $sourceDp.displayName und $destDp.displayName besitzen nicht den gleichen Datentyp!")
+				return
+			}
+			// copy
+			try {
+				def rows=database.copyTimeSeries(destDp, sourceDp, null, null, null)
+				displaySuccess(html, "Es wurden $rows Einträge von $sourceDp.displayName nach $destDp.displayName kopiert!")
+			} catch (e) {
+				displayError(html, "Die Historie konnte nicht von $sourceDp.displayName nach $destDp.displayName kopiert werden!", e)
+			}
+			return
+	}
+	
+	// backup warning
+	div(class:'alert alert-warning', role:'alert') {
+		span class:'glyphicon glyphicon-exclamation-sign'
+		mkp.yield ' Mit diesen Funktionen können Daten unwiderruflich gelöscht werden! Es sollte immer vorab eine Sicherungskopie der '
+		mkp.yield 'Datenbank erstellt werden.'
+	}
+
+	// list data points
+	div(class:'panel panel-success') {
+		div(class:'panel-heading') {
+			h3 class:'panel-title', 'Ausgewählte Datenpunkte'
+		}
+		ul(class:'list-group') {
+			dataPoints.each { dp ->
+				li class:'list-group-item', dp.displayName
+			}
+		}
+	}
+	
+	div(class:'panel-group', id:'accordion') {
+		// delete datapoint and history
+		div(class:'panel panel-default') {
+			div(class:'panel-heading') {
+				h4(class:'panel-title') {
+					a 'data-toggle':'collapse', 'data-parent':'#accordion', href:'#collapse-delete-datapoint', 
+						'Datenpunkte inkl. Historie löschen'
+				}
+			}
+			div(class:'panel-collapse collapse', id:'collapse-delete-datapoint') {
+				div(class:'panel-body') {
+					// remove GET parameters from URL
+					form(method:'post', action:'dptools.gy') {
+						p 'Falls die Datenpunkte in der CCU weiterhin vorhanden sind, werden sie vom CCU-Historian wieder erneut ' +
+							'erkannt und angelegt.'
+						dataPoints.eachWithIndex { dp, idx ->
+							input type:'hidden', name:'dp'+(idx+1), value:dp.idx
+						}
+						button type:'submit', class:'btn btn-danger', name:'tool', value:'delete-datapoint', 'Datenpunkte löschen'
+					}
+				}
+			}
+		}
+		
+		// delete history of data point
+		div(class:'panel panel-default') {
+			div(class:'panel-heading') {
+				h4(class:'panel-title') {
+					a 'data-toggle':'collapse', 'data-parent':'#accordion', href:'#collapse-delete-history', 'Historien löschen'
+				}
+			}
+			div(class:'panel-collapse collapse', id:'collapse-delete-history') {
+				div(class:'panel-body') {
+					// remove GET parameters from URL
+					form(method:'post', action:'dptools.gy') {
+						p 'Die kompletten Historien der angegebenen Datenpunkte werden gelöscht. Falls die Datenpunkte nicht auf ' +
+							'inaktiv gesetzt sind, werden die Historien mit neuen Werten wieder gefüllt.'
+						dataPoints.eachWithIndex { dp, idx ->
+							input type:'hidden', name:'dp'+(idx+1), value:dp.idx
+						}
+						button type:'submit', class:'btn btn-danger', name:'tool', value:'delete-history', 'Historie löschen'
+					}
+				}
+			}
+		}
+		
+		// delete time range
+		div(class:'panel panel-default') {
+			div(class:'panel-heading') {
+				h4(class:'panel-title') {
+					a 'data-toggle':'collapse', 'data-parent':'#accordion', href:'#collapse-delete-range', 'Zeitbereich löschen'
+				}
+			}
+			div(class:'panel-collapse collapse', id:'collapse-delete-range') {
+				div(class:'panel-body') {
+					// remove GET parameters from URL
+					form(method:'post', action:'dptools.gy') {
+						p 'Es wird der angegebene Zeitbereich von allen Datenpunkte gelöscht. Wenn kein Beginnzeitpunkt angegeben wird, ' +
+							' so werden alle Einträge bis zum Endzeitpunkt gelöscht. Wenn kein Endzeitpunkt angegeben wird, so werden ' +
+							' alle Einträge ab dem Beginnzeitpunkt gelöscht.'
+						dataPoints.eachWithIndex { dp, idx ->
+							input type:'hidden', name:'dp'+(idx+1), value:dp.idx
+						}
+						div(class:'form-group') {
+							label class:'col-sm-3 control-label', 'Beginnzeitpunkt'
+							div(class:'col-sm-9') {
+								input type:'text', class:'form-control', name:'b', placeholder:'TT.MM.JJJJ hh:mm:ss'
+							}
+						}
+						div(class:'form-group') {
+							label class:'col-sm-3 control-label', 'Endzeitpunkt'
+							div(class:'col-sm-9') {
+								input type:'text', class:'form-control', name:'e', placeholder:'TT.MM.JJJJ hh:mm:ss'
+							}
+						}
+						button type:'submit', class:'btn btn-danger', name:'tool', value:'delete-range', 'Zeitbereich löschen'
+					}
+				}
+			}
+		}
+
+		// copy history
+		div(class:'panel panel-default') {
+			div(class:'panel-heading') {
+				h4(class:'panel-title') {
+					a 'data-toggle':'collapse', 'data-parent':'#accordion', href:'#collapse-copy-history', 'Historie kopieren'
+				}
+			}
+			div(class:'panel-collapse collapse', id:'collapse-copy-history') {
+				div(class:'panel-body') {
+					// remove GET parameters from URL
+					form(class:'form-horizontal', method:'post', action:'dptools.gy') {
+						p 'Die komplette Historie des angegebenen Quelldatenpunktes wird in die Historie des Zieldatenpunktes ' +
+							'eingefügt. Dies ist beispielsweise bei einem Gerätetausch sinnvoll.'
+						// at least two data points provided?
+						if (dataPoints.size()<2) {
+							div(class:'alert alert-danger', role:'alert', style:'margin-top: 0.5em') {
+								span class:'glyphicon glyphicon-exclamation-sign'
+								mkp.yield ' Es wurden zu wenige Datenpunkte ausgewählt. Es werden mindestens zwei benötigt!'
+							}
+							return
+						}
+						div(class:'form-group') {
+							label class:'col-sm-3 control-label', 'Quelldatenpunkt'
+							div(class:'col-sm-9') {
+								select(class:'form-control', name:'dp1') {
+									dataPoints.eachWithIndex { dp, idx ->
+										def selected=(idx==0)?[selected:'selected']:[:]
+										option(value:dp.idx, *:selected, dp.displayName)
+									}
+								}
+							}
+						}
+						div(class:'form-group') {
+							label class:'col-sm-3 control-label', 'Zieldatenpunkt'
+							div(class:'col-sm-9') {
+								select(class:'form-control', name:'dp2') {
+									dataPoints.eachWithIndex { dp, idx ->
+										def selected=(idx==1)?[selected:'selected']:[:]
+										option(value:dp.idx, *:selected, dp.displayName)
+									}
+								}
+							}
+						}
+						div(class:'form-group') {
+							div(class:'col-sm-offset-3 col-sm-9') {
+								button type:'submit', class:'btn btn-danger', name:'tool', value:'copy-history', 'Historie kopieren'
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// render page
+renderer.render()

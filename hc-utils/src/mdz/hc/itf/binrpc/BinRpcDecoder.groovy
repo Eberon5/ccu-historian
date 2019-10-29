@@ -19,7 +19,6 @@ package mdz.hc.itf.binrpc
 
 import groovy.transform.CompileStatic
 import static mdz.hc.itf.binrpc.BinRpcConstants.*
-import mdz.Utilities;
 
 @CompileStatic
 class BinRpcDecoder {
@@ -66,7 +65,7 @@ class BinRpcDecoder {
 		new Header(type: type, payloadLength: payloadLength)	
 	}
 	
-	private Request decodeRequest(byte[] data) {
+	public Request decodeRequest(byte[] data) {
 		is=[data]
 		Request req=[]
 		req.methodName=decodeString()

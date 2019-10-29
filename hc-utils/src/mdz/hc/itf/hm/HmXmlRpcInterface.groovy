@@ -23,9 +23,8 @@ import java.util.logging.Level
 import groovy.util.logging.Log
 import groovy.transform.TupleConstructor
 import groovy.transform.EqualsAndHashCode
-import groovy.transform.CompileStatic
 import mdz.Exceptions
-import mdz.Utilities
+import mdz.Text
 import mdz.eventprocessing.Consumer
 import mdz.eventprocessing.BasicProducer
 import mdz.hc.RawEvent
@@ -41,11 +40,11 @@ import mdz.hc.DataPointIdentifier
  */
 @Log
 @TupleConstructor
-@CompileStatic
 public class HmXmlRpcInterface extends BasicProducer<RawEvent> implements Interface, WriteSupport, Consumer<RawEvent>, HmReinitable {
 
 	public static final String PARAMSET_VALUES = 'VALUES'
-	public static final String UNKNOWN_DEVICE_ERROR_TEXT = 'Unknown instance'
+	public static final String UNKNOWN_DEVICE_ERROR_TEXT1 = 'Unknown instance'
+	public static final String UNKNOWN_DEVICE_ERROR_TEXT2 = 'Invalid device'
 	 
 	final String name
 	// name of the interface in the logic layer of the CCU
@@ -70,7 +69,7 @@ public class HmXmlRpcInterface extends BasicProducer<RawEvent> implements Interf
 			client.host=host
 			client.port=port
 			if (!disableRegistration) {
-				init()
+				Exceptions.catchToLog(log) { init() }
 				reinitTask.add this
 			}
 		} catch (Exception e) {
@@ -88,6 +87,10 @@ public class HmXmlRpcInterface extends BasicProducer<RawEvent> implements Interf
 		server.removeConsumer(this)
 		devicePropCache.clear()
 		lastCommTime=null
+	}
+	
+	public boolean isRegistered() {
+		registered
 	}
 	
 	@Override
@@ -154,6 +157,27 @@ public class HmXmlRpcInterface extends BasicProducer<RawEvent> implements Interf
 	
 	private void updateDeviceProperties(List<DataPoint> dps, long maxCacheAge) {
 		dps.each { DataPoint dp ->
+			// detect a continuous data point
+			dp.continuous=dp.id.identifier in [
+				'ACTUAL_HUMIDITY',
+				'ACTUAL_TEMPERATURE',
+				'AIR_PRESSURE',
+				'BRIGHTNESS',
+				'CURRENT',
+				'ENERGY_COUNTER',
+				'FREQUENCY',
+				'HUMIDITY',
+				'ILLUMINATION',
+				'LUX',
+				'POWER',
+				'RAIN_COUNTER',
+				'SUNSHINEDURATION',
+				'TEMPERATURE',
+				'VOLTAGE',
+				'WIND_SPEED',
+			]
+			
+			// device properties never changes
 			if (dp.attributes.type!=null) return
 			DevicePropCacheValue cachedProperties=devicePropCache[dp.id]
 			if (cachedProperties==null) {
@@ -165,7 +189,7 @@ public class HmXmlRpcInterface extends BasicProducer<RawEvent> implements Interf
 							(Integer)meta.TAB_ORDER, 
 							meta.MAX,
 							// incorrectly encoded by CCU
-							Utilities.unescapeXml((String)meta.UNIT), 
+							meta.UNIT!=null?Text.unescapeXml((String)meta.UNIT):null,
 							meta.MIN, 
 							(String)meta.CONTROL,
 							(Integer)meta.OPERATIONS, 
@@ -176,8 +200,9 @@ public class HmXmlRpcInterface extends BasicProducer<RawEvent> implements Interf
 					}
 					cachedProperties=devicePropCache[dp.id]
 				} catch (Exception e) {
-					// FIXME: test and narrow exception type
-					if (e.getMessage()!=null && e.getMessage().equals(UNKNOWN_DEVICE_ERROR_TEXT)) {
+					if (e.getMessage()!=null && 
+						(e.getMessage().equals(UNKNOWN_DEVICE_ERROR_TEXT1) || 
+						 e.getMessage().equals(UNKNOWN_DEVICE_ERROR_TEXT2)) ) {
 						log.warning "Device $dp.id does not exist"
 					} else {
 						log.warning "Communication error"
@@ -221,7 +246,7 @@ public class HmXmlRpcInterface extends BasicProducer<RawEvent> implements Interf
 			value=true
 			break 
 		case DataPoint.ATTR_TYPE_BOOL: 
-			value=Utilities.asBoolean(value)
+			value=Text.asBoolean(value)
 			break
 		case DataPoint.ATTR_TYPE_FLOAT: 
 			value=value as double

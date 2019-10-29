@@ -17,14 +17,15 @@
 */
 package mdz.hc.itf.binrpc;
 
-import groovy.util.GroovyTestCase
-import mdz.Utilities;
 import mdz.hc.itf.binrpc.BinRpcDecoder
 import mdz.hc.itf.binrpc.BinRpcEncoder
 import static mdz.hc.itf.binrpc.BinRpcConstants.*
 
-class BinRpcDecoderTest extends GroovyTestCase {
+import org.junit.Test
 
+class BinRpcDecoderTest {
+
+	@Test
 	void testDecodeInt() {
 		BinRpcDecoder dec=[]
 		dec.is=new ByteArrayInputStream([0, 0, 0, 0] as byte[])
@@ -37,6 +38,7 @@ class BinRpcDecoderTest extends GroovyTestCase {
 		assert dec.decodeInt()==Integer.MIN_VALUE
 	}
 	
+	@Test
 	void testDecodeBoolean() {
 		BinRpcDecoder dec=[]
 		BinRpcEncoder enc=[]
@@ -50,6 +52,7 @@ class BinRpcDecoderTest extends GroovyTestCase {
 		assert dec.decodeBoolean()==true
 	}
 	
+	@Test
 	void testDecodeString() {
 		BinRpcDecoder dec=[]
 		BinRpcEncoder enc=[]
@@ -63,6 +66,7 @@ class BinRpcDecoderTest extends GroovyTestCase {
 		assert dec.decodeString()=='Test 123 abc ABC üöäÜÖÄß'
 	}
 	
+	@Test
 	void testDecodeDouble() {
 		BinRpcDecoder dec=[]
 		BinRpcEncoder enc=[]
@@ -93,6 +97,7 @@ class BinRpcDecoderTest extends GroovyTestCase {
 		assert Math.abs(dec.decodeDouble()-1.2345e100)<0.0001e100
 	}
 
+	@Test
 	void testDecodeDate() {
 		BinRpcDecoder dec=[]
 		BinRpcEncoder enc=[]
@@ -106,6 +111,7 @@ class BinRpcDecoderTest extends GroovyTestCase {
 		assert dec.decodeDate()==new Date(10000L)
 	}
 
+	@Test
 	void testDecodeBinary() {
 		BinRpcDecoder dec=[]
 		BinRpcEncoder enc=[]
@@ -120,6 +126,7 @@ class BinRpcDecoderTest extends GroovyTestCase {
 		assert dec.decodeBinary()==[0, 1, (byte)0x80, (byte)0xff] as byte[]
 	}
 
+	@Test
 	void testDecodeArray() {
 		BinRpcDecoder dec=[]
 		BinRpcEncoder enc=[]
@@ -131,6 +138,7 @@ class BinRpcDecoderTest extends GroovyTestCase {
 		assert dec.decodeArray()==test
 	}
 
+	@Test
 	void testDecodeStruct() {
 		BinRpcDecoder dec=[]
 		BinRpcEncoder enc=[]
@@ -142,6 +150,7 @@ class BinRpcDecoderTest extends GroovyTestCase {
 		assert dec.decodeStruct()==test
 	}
 	
+	@Test
 	void testDecodeComplex() {
 		BinRpcDecoder dec=[]
 		BinRpcEncoder enc=[]
@@ -152,6 +161,7 @@ class BinRpcDecoderTest extends GroovyTestCase {
 		assert dec.decodeObject()==test
 	}
 
+	@Test
 	void testDecodeRequest() {
 		BinRpcDecoder dec=[]
 		BinRpcEncoder enc=[]
@@ -162,6 +172,7 @@ class BinRpcDecoderTest extends GroovyTestCase {
 		assert req.parameters==[1, 2, 3]
 	}
 	
+	@Test
 	void testDecodeResponse() {
 		BinRpcDecoder dec=[]
 		BinRpcEncoder enc=[]
@@ -171,6 +182,7 @@ class BinRpcDecoderTest extends GroovyTestCase {
 		assert resp.result==[true, 'a']
 	}
 	
+	@Test
 	void testDecodeFault() {
 		BinRpcDecoder dec=[]
 		BinRpcEncoder enc=[]
@@ -181,6 +193,7 @@ class BinRpcDecoderTest extends GroovyTestCase {
 		assert flt.faultString=='Text abc ABC üöäÜÖÄß'
 	}
 	
+	@Test
 	void testHeader() {
 		BinRpcDecoder dec=[]
 

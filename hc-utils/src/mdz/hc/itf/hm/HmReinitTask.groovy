@@ -21,7 +21,6 @@ import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import mdz.Exceptions
-import mdz.Utilities;
 import groovy.util.logging.Log
 import groovy.transform.CompileStatic
 
@@ -30,7 +29,7 @@ import groovy.transform.CompileStatic
 public class HmReinitTask {
 
 	private final static long DEFAULT_TIMEOUT = 5*60*1000
-	private final static long DEFAULT_CHECKTIME = 10*1000
+	private final static long DEFAULT_CHECKTIME = 30*1000
 	
 	long timeout
 	long checkTime
@@ -50,7 +49,7 @@ public class HmReinitTask {
 			if (checkInterfacesFuture==null) {
 				log.fine 'Starting re-init task'
 				checkInterfacesFuture=executor.scheduleWithFixedDelay(
-					this.&checkInterfaces, checkTime, checkTime, TimeUnit.MILLISECONDS
+					this.&checkInterfaces, timeout, checkTime, TimeUnit.MILLISECONDS
 				)
 			}
 			interfaces << itf
@@ -74,10 +73,15 @@ public class HmReinitTask {
 			Exceptions.catchToLog(log) {
 				log.finer 'Checking timeouts'
 				Date now=[]
-				Collection<HmReinitable> timedOut=interfaces.findAll { now.time-it.lastCommTime.time>timeout }
-				if (timedOut.size()==interfaces.size()) {
-					log.warning "Timeout on interface(s) ${timedOut*.name.join(', ')}; reinitializing all callbacks"
-					interfaces.each { itf -> Exceptions.catchToLog(log) { itf.init() } }
+				// find all timed out interfaces
+				interfaces.findAll {
+					it.lastCommTime==null || 
+					now.time-it.lastCommTime.time>timeout 
+				}.each { ri ->
+					log.fine "Timeout on interface $ri.name: reinitializing callback"
+					Exceptions.catchToLog(log) { 
+						ri.init()
+					}
 				}
 			}
 		}

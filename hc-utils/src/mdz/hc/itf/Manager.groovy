@@ -25,7 +25,6 @@ import mdz.hc.itf.hm.HmBinRpcServer
 import mdz.hc.itf.hm.HmXmlRpcServer
 import mdz.hc.itf.binrpc.BinRpcServer
 import groovy.util.logging.Log
-import groovy.transform.CompileStatic
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledThreadPoolExecutor
@@ -33,7 +32,6 @@ import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
 @Log
-@CompileStatic
 public class Manager extends BasicProducer<RawEvent> implements Consumer<RawEvent> {
 	
 	private final static long SHUTDOWN_TIMEOUT = 15000 // ms
@@ -55,10 +53,11 @@ public class Manager extends BasicProducer<RawEvent> implements Consumer<RawEven
 			log.info 'Starting interfaces'
 			binRpcServer?.start()
 			xmlRpcServer?.start()
-			interfaces.each { String name, Interface itf ->
+			interfaces.values().each { Interface itf ->
 				itf.addConsumer(this) 
 				itf.start() 
 			}
+			log.fine 'Interfaces started'
 			eventSenderThread=[this.&sendEvents as Runnable, 'manager-eventsender']
 			eventSenderThread.start()
 			started=true
@@ -164,8 +163,7 @@ public class Manager extends BasicProducer<RawEvent> implements Consumer<RawEven
 	public void consume(RawEvent event) {
 		log.finer "Event received: $event"
 		if (event.id.identifier=='PONG' &&
-			event.id.interfaceId=='BidCoS-RF' &&
-			event.id.address=='CENTRAL') {
+			event.id.address.startsWith('CENTRAL')) {
 			log.fine 'Discarding ping response'
 		} else {
 			eventQueue.offer event

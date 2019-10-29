@@ -17,7 +17,6 @@
 */
 package mdz.ccuhistorian.eventprocessing
 
-import groovy.transform.CompileStatic
 import groovy.util.logging.Log
 import mdz.eventprocessing.BasicProducer
 import mdz.eventprocessing.Processor
@@ -26,10 +25,8 @@ import mdz.hc.Event
 import mdz.hc.ProcessValue
 import mdz.ccuhistorian.Main
 import mdz.Exceptions
-import mdz.Utilities
 import java.util.logging.Level
 
-@CompileStatic
 @Log
 public class Preprocessor extends BasicProducer<Event> implements Processor<Event, Event> {
 
@@ -216,13 +213,13 @@ public class Preprocessor extends BasicProducer<Event> implements Processor<Even
 			ip.intervalLength=intervalLength
 			switch (type) {
 				case Type.AVG_COMPR: 
-					ip.function = Preprocessor.&avgComprFunction as IntervalProcessor.Function
+					ip.function = Preprocessor.&avgComprFunction as IntervalFunction
 					break 
 				case Type.MIN_COMPR: 
-					ip.function = Preprocessor.&minComprFunction as IntervalProcessor.Function
+					ip.function = Preprocessor.&minComprFunction as IntervalFunction
 					break 
 				case Type.MAX_COMPR: 
-					ip.function = Preprocessor.&maxComprFunction as IntervalProcessor.Function
+					ip.function = Preprocessor.&maxComprFunction as IntervalFunction
 					break 
 			}
 			ip.addConsumer { Event e -> produce e }

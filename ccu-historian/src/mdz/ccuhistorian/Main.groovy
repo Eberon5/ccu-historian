@@ -21,12 +21,10 @@ import java.util.logging.Logger
 import mdz.Exceptions
 import mdz.hc.itf.Manager
 import mdz.hc.persistence.Storage
-import groovy.transform.CompileStatic
 
-@CompileStatic
 class Main {
 
-	public static String version='1.2.1'
+	public static String version='2.2.3'
 	
 	private static final Logger log=Logger.getLogger(Main.class.name)
 	private static Main main
@@ -38,9 +36,11 @@ class Main {
 
 	public static void main(String[] args) {
 		// set some properties for headless Java VMs, issue #82
-		System.setProperty('java.awt.headless', 'true')
-		System.setProperty('javax.accessibility.assistive_technologies', ' ')
-
+		if (System.getProperty('java.awt.headless')==null) {
+			System.setProperty('java.awt.headless', 'true')
+			System.setProperty('javax.accessibility.assistive_technologies', ' ')
+		}
+		
 		main=new Main()
 		main.run(args)
 	}

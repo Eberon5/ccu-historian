@@ -1,0 +1,414 @@
+/*
+    CCU-Historian, a long term archive for the HomeMatic CCU
+    Copyright (C) 2011-2018 MDZ (info@ccu-historian.de)
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+import groovy.transform.Field
+import java.util.logging.Logger
+import mdz.ccuhistorian.webapp.TrendParameters
+import mdz.ccuhistorian.webapp.TimeRange
+import static mdz.ccuhistorian.webapp.WebUtilities.*
+import static mdz.ccuhistorian.webapp.TextFormat.*
+
+@Field
+private final static int NUM_OF_GROUPS = 8
+@Field
+private final static int MAX_NUM_DATA_POINTS = 20
+@Field
+private static final int NUM_STRING_ENTRIES = 50
+
+@Field
+private final static timeNavigations=[
+	[
+		id:'fast-backward', 
+		icon:'glyphicon-backward',
+		tooltip:'Eine komplette Zeitbereichslänge in die Vergangenheit.', 
+		func: { b, e ->
+			def d=e-b; [b-d, e-d]
+		}
+	], [
+		id:'backward', 
+		icon:'glyphicon-triangle-left',
+		tooltip:'1/3 Zeitbereichslänge in die Vergangenheit.', 
+		func: { b, e ->
+			def d=(e-b)/3; [b-d, e-d]
+		}
+	], [
+		id:'zoom-in', 
+		icon:'glyphicon-zoom-in',
+		tooltip:'Zeitbereich um Faktor 3 verkleinern.',
+		func: { b, e ->
+			def d=(e-b)/3
+			// force min. time range of 10 seconds
+			if (d<10000) d=(e-b-10000)/2 
+			[b+d, e-d]
+		}
+	], [
+		id:'refresh',
+		icon:'glyphicon-refresh',
+		tooltip:'Aktuellen Zeitbereich erneut anzeigen. Evtl. sind neue Daten vorhanden.',
+		func: null /* do nothing */
+	], [
+		id:'zoom-out', 
+		icon:'glyphicon-zoom-out',
+		tooltip:'Zeitbereich um Faktor 3 vergrößern.',
+		func: { b, e ->
+			def d=e-b; [b-d, e+d]
+		}
+	], [
+		id:'forward',
+		icon:'glyphicon-triangle-right',
+		tooltip:'1/3 Zeitbereichslänge in die Zukunft.',
+		func: { b, e ->
+			def d=(e-b)/3; [b+d, e+d]
+		}
+	], [
+		id:'fast-forward',
+		icon:'glyphicon glyphicon-forward', 
+		tooltip:'Eine komplette Zeitbereichslänge in die Zukunft.',
+		func: { b, e ->
+			def d=e-b; [b+d, e+d]
+		}
+	],
+]
+
+@Field
+private final static presetRanges=[
+	[id:'preset-last-1-hour', text:'Letzte Stunde', begin:'-1h', end:''],
+	[id:'preset-last-24-hours', text:'Letzten 24 Stunden', begin:'-24h', end:''],
+	[id:'preset-current-day', text:'Aktueller Tag', begin:'z', end:'1D'],
+	[id:'preset-previous-day', text:'Vortag', begin:'-1D z', end:'1D'],
+	[id:'preset-last-7-days', text:'Letzten 7 Tage', begin:'-7D', end:''],
+	[id:'preset-current-week', text:'Aktuelle Woche', begin:'1=w z', end:'1W'],
+	[id:'preset-previous-week', text:'Vorwoche', begin:'-1W 1=w z', end:'1W'],
+	[id:'preset-last-31-days', text:'Letzter Monat', begin:'-1M', end:''],
+	[id:'preset-current-month', text:'Aktueller Monat', begin:'1=D z', end:'1M'],
+	[id:'preset-previous-month', text:'Vormonat', begin:'-1M 1=D z', end:'1M'],
+	[id:'preset-last-6-months', text:'Letzten 6 Monate', begin:'-6M', end:''],
+]
+
+@Field
+private final static groupHeights=[
+	[height:1, text:'niedrig'],
+	[height:2, text:'mittel'],
+	[height:4, text:'hoch'],
+]
+
+@Field
+private final static Logger log = Logger.getLogger('mdz.ccuhistorian.webapp.Trend')
+
+// setup page
+def renderer=new mdz.ccuhistorian.webapp.PageRenderer(servlet: this)
+
+renderer.head={
+	title 'CCU-Historian: Trend'
+}
+
+renderer.content={
+	def trendParams=TrendParameters.from(request, database, webServer.config.trendDesigns)
+	
+	// separate string data points
+	def stringDataPoints=[]
+	trendParams.groups.values().each { group ->
+		stringDataPoints.addAll(group.dataPoints.findAll { dp -> dp.historyString }) 
+		group.dataPoints.removeAll { dp -> dp.historyString }
+	}
+	def stringDpParams=stringDataPoints.withIndex(10000).collectEntries { dp, idx -> ["dp$idx": dp.idx] }
+	
+	// apply time navigation
+	def navId=request.getParameter('navigate')
+	def navFunc=timeNavigations.find { navId==it.id }?.func
+	if (navFunc) {
+		def tr=trendParams.timeRange
+		def (b, e)=navFunc(tr.begin.time, tr.end.time)
+		trendParams.timeRange=TimeRange.fromDates(new Date((long)b), new Date((long)e))
+	}
+	
+	div(class:'row') {
+		// inputs for time navigation	
+		form(id:'time-form') {
+			// forward other trend parameters
+			def forwardParams=trendParams.parameters.findAll { k, vs ->
+				k!='b' && k!='e'
+			}
+			buildHiddenInputs(html, forwardParams, stringDpParams)
+
+			div(class:'col-sm-2') {
+				// presets
+				button(type:'button', class:'btn btn-default btn-block dropdown-toggle', 'data-toggle':'dropdown') {
+					mkp.yield 'Zeitbereiche'
+					span class:'caret'
+				}
+				ul(class:'dropdown-menu') {
+					presetRanges.each { rng -> 
+						li { a href:'#', id:rng.id, rng.text }
+					}
+				}
+			}
+			def tooltip=[
+				'data-toggle':'tooltip', 
+				title:'Absolut: DD.MM.YYYY HH:MM:SS oder YYYYMMDDHHMMSS (Bestandteile am Ende ' +
+					'können entfallen.); Relativ: Zahl mit Modifizierer (auch mehrfach) Y, M, D, ' + 
+					'h, m, s, =Y, =M, =D, =w (Wochentag), =W (Woche im Jahr), =h, =m, =s oder ' +
+					'z (Uhrzeit auf 0)'
+			]
+			div(class:'col-sm-3') {
+				div(class:'input-group') {
+					span(class:'input-group-addon', *:tooltip, 'Start')
+					input(type:'text', id:'time-begin', name:'b', class:'form-control', placeholder:'Start',
+						*:tooltip, value:trendParams.timeRange.beginText)
+				}
+			}
+			div(class:'col-sm-3') {
+				div(class:'input-group') {
+					span(class:'input-group-addon', *:tooltip, 'Ende')
+					input(type:'text', id:'time-end', name:'e', class:'form-control', placeholder:'Ende',
+						*:tooltip, value:trendParams.timeRange.endText)
+				}
+			}
+			div(class:'col-sm-2') {
+				button class:'btn btn-primary btn-block', type:'submit', name:'update-timerange', value:1, 
+					'data-toggle':'tooltip', title:'Den eingegebenen Zeitbereich übernehmen.',
+					'Übernehmen'
+			}
+		}
+		// change data points
+		div(class:'col-sm-2') {
+			a class:'btn btn-default btn-block', href:buildUrl('index.gy', trendParams.parameters, stringDpParams),
+				'data-toggle':'tooltip', title:'Die Datenpunktauswahl anpassen. Die bereits ausgewählten Datenpunkte ' +
+				'bleiben selektiert.', role:'button', 'Datenpunkte'
+		}
+	}
+
+	// buttons for time navigation
+	div(class:'btn-group btn-group-justified', role:'group', style:'margin-top: 0.5em') {
+		timeNavigations.each { tn ->
+			a(class:'btn btn-default', href:buildUrl('trend.gy', trendParams.parameters, stringDpParams, [navigate:tn.id]),
+				role:'button', 'data-toggle':'tooltip', title:tn.tooltip) {
+				span class:'glyphicon '+tn.icon
+			}
+		}
+	}
+
+	// any data points selected?
+	def dpCnt=trendParams.groups.values().dataPoints*.size().sum()
+	if (stringDataPoints.size()==0 && !dpCnt /* null or 0 */) {
+		// no data points alert
+		div(class:'alert alert-danger', role:'alert', style:'margin-top: 0.5em') {
+			span class:'glyphicon glyphicon-exclamation-sign'
+			mkp.yield " Es wurden keine Datenpunkte ausgewählt!"
+		}
+	}
+	
+	// display trend graphics
+	if (dpCnt>MAX_NUM_DATA_POINTS) {
+		// too many data points alert
+		div(class:'alert alert-danger', role:'alert', style:'margin-top: 0.5em') {
+			span class:'glyphicon glyphicon-exclamation-sign'
+			mkp.yield " Es wurden zu viele Datenpunkte für den Trend ausgewählt (Max. Anzahl: $MAX_NUM_DATA_POINTS)!"
+		} 
+	} else if (dpCnt) {
+		// show trend
+		p(class:'text-center', style:'margin-top: 0.5em') {
+			// if required, use API key
+			def apiKey=webServer.config.apiKeys ? [k:webServer.config.apiKeys[0]] : [:]
+			img alt:'Bitte warten: Die Trend-Darstellung wird generiert!', src:buildUrl('../query/trend', trendParams.parameters, apiKey),
+				width:trendParams.width, height:trendParams.height
+		}
+		
+		// layout toolbar
+		div(style:'margin-bottom: 0.5em') {
+			// show/hide trend options
+			button(class:'btn btn-default', type:'button', 'data-toggle':'collapse', 'data-target':'#options', 
+				'Optionen') {
+				span class:'caret'
+			}
+			
+			// CSV export
+			a class:'btn btn-default', href:buildUrl('/query/csv.gy', trendParams.parameters, stringDpParams), 'CSV-Export'
+			
+			// individual groups
+			button class:'btn btn-default', form:'individual-groups', type:'submit',
+				'data-toggle':'tooltip', title:'Jedem Datenpunkt wird eine eigene Gruppe zugewiesen. ' + 
+				'Sie werden dadurch getrennt übereinander dargestellt.', 
+				'Einzelne Gruppen'
+			form(id:'individual-groups') {
+				def fp=trendParams.clone()
+				def dps=trendParams.groups.values().dataPoints.flatten()
+				fp.groups.clear()
+				// create group for each data point
+				dps.eachWithIndex { dp, idx ->
+					def gr=new TrendParameters.Group()
+					gr.dataPoints << dp
+					fp.groups[idx+1]=gr  
+				}
+				buildHiddenInputs(html, fp.parameters, stringDpParams)
+			}
+			
+		}
+		
+		// trend options
+		form {
+			// forward other trend parameters
+			def forwardParams=trendParams.parameters.findAll { k, vs ->
+				!k.startsWith('g') && !k.startsWith('gh') && k!='w' && k!='h'
+			}
+			buildHiddenInputs(html, forwardParams, stringDpParams)
+	
+			div(id:'options', class:'panel panel-default collapse') {
+				div(class:'panel-body') {
+					div(class:'row') {
+						// data point groups
+						div(class:'col-lg-6') {
+							table(class:'table table-bordered table-condensed table-hover') {
+								thead {
+									tr { th 'Kanal'; th 'Parameter'; th 'Gruppe' }
+								}
+								tbody {
+									int dpIdx=1
+									trendParams.groups.each { grpIdx, grp ->
+										// remove unsupported group indices
+										if (grpIdx>NUM_OF_GROUPS) {
+											grpIdx=NUM_OF_GROUPS
+										}
+										grp.dataPoints.each { dp ->
+											tr {
+												td dp.attributes.displayName?:dp.id.address
+												td dp.id.identifier
+												td {
+													select(class:'form-control', name:'g'+dpIdx) {
+														(1..NUM_OF_GROUPS).each { optIdx ->
+															def selected=(grpIdx==optIdx)?[selected:'selected']:[:]
+															option(value:optIdx, *:selected, optIdx)
+														}
+													}
+												}
+											}
+											dpIdx++
+										}
+									}
+								}
+							}
+						}
+						// group heights
+						div(class:'col-lg-3') {
+							table(class:'table table-bordered table-condensed table-hover') {
+								thead {
+									tr { th 'Gruppe'; th 'Höhe' }
+								}
+								tbody {
+									(1..NUM_OF_GROUPS).each { grpIdx ->
+										def height=trendParams.groups[grpIdx]?.height?:1
+										// normalize height
+										height=groupHeights*.height.reverse().find { it<=height }
+										tr {
+											td 'Gruppe '+grpIdx
+											td {
+												select(class:'form-control', name:'gh'+grpIdx) {
+													groupHeights.each { grpHeight ->
+														def selected=(height==grpHeight.height)?[selected:'selected']:[:]
+														option(value:grpHeight.height, *:selected, grpHeight.text)
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+						div(class:'col-lg-3') {
+							// trend size
+							table(class:'table table-bordered table-condensed table-hover') {
+								thead {
+									tr { th 'Größe'; th 'Wert' }
+								}
+								tbody {
+									tr {
+										td 'Breite'
+										td { input class:'form-control', name:'w', value:trendParams.width }
+									}
+									tr {
+										td 'Höhe'
+										td { input class:'form-control', name:'h', value:trendParams.height }
+									}
+								}
+							}
+							// submit button
+							button class:'btn btn-primary btn-block', type:'submit', name:'update-options', value:1, 'Übernehmen'
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	// display string data points
+	stringDataPoints.each { dp ->
+		// show table
+		h4 dp.displayName
+		def timeSeries=database.getTimeSeriesRaw(dp, trendParams.timeRange.begin, trendParams.timeRange.end)
+		def toMany=timeSeries.size()>NUM_STRING_ENTRIES
+		if (toMany) {
+			timeSeries=timeSeries.takeRight(NUM_STRING_ENTRIES).reverse()
+		} else {
+			timeSeries=timeSeries.iterator().reverse()
+		}
+		table(class:'table table-bordered table-hover') {
+			thead {
+				tr {
+					th 'Zeitstempel'
+					th 'Wert'
+					th 'Status'
+				}
+			}
+			tbody {
+				timeSeries.each { entry ->
+					tr {
+						td formatDate(entry.timestamp)
+						td entry.value
+						td class:'text-right', entry.state
+					}
+				}
+			}
+		}
+		if (toMany) {
+			div(class:'alert alert-warning alert-dismissible', role:'alert') {
+				button(type:'button', class:'close', 'data-dismiss':'alert') {
+					span { mkp.yieldUnescaped '&times;' }
+				}
+				span class:'glyphicon glyphicon-exclamation-sign'
+				mkp.yield " Zu viele Einträge! Es werden die letzten $NUM_STRING_ENTRIES Einträge angezeigt!"
+			}
+		}
+	}
+}
+
+renderer.end={
+    script {
+		// bind preset ranges
+		presetRanges.each { rng ->
+			mkp.yieldUnescaped($/
+				$('#${rng.id}').on('click', function(e) {
+					$('#time-begin').val('${rng.begin}');
+					$('#time-end').val('${rng.end}');
+					$('#time-form').submit();
+				});	
+			/$)
+		} 
+	}
+}
+
+// render page
+renderer.render()

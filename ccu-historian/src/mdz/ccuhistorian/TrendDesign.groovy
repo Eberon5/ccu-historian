@@ -19,9 +19,12 @@ package mdz.ccuhistorian
 
 import java.awt.Paint
 import org.jfree.chart.ChartColor
+
+import groovy.transform.AutoClone
 import groovy.transform.CompileStatic
 
 @CompileStatic
+@AutoClone
 class TrendDesign {
 
 	private static Paint[] defaultColors=(Paint[])[
@@ -41,7 +44,7 @@ class TrendDesign {
 	List<Closure> rangeAxes
 	List<Closure> series
 	List<Closure> renderers
-
+		
 	static Paint getDefaultColor(int idx) {
 		defaultColors[idx%defaultColors.length]
 	}

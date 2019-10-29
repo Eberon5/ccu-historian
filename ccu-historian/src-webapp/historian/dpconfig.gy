@@ -1,0 +1,269 @@
+/*
+    CCU-Historian, a long term archive for the HomeMatic CCU
+    Copyright (C) 2011-2019 MDZ (info@ccu-historian.de)
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+import groovy.transform.Field
+import java.util.logging.Logger
+import mdz.ccuhistorian.webapp.TextFormat
+
+@Field
+private final static Logger log = Logger.getLogger('mdz.ccuhistorian.webapp.Trend')
+
+@Field
+private final static preprocTypes = [
+	0:'-',
+	1:'Delta K.',
+	2:'Zeitl.K.',
+	3:'Mittelw.',
+	4:'Minimum',
+	5:'Maximum',
+] as TreeMap
+
+// setup page
+def renderer=new mdz.ccuhistorian.webapp.PageRenderer(servlet: this)
+
+renderer.head={
+	title 'CCU-Historian: Datenpunktkonfiguration'
+}
+
+renderer.content={
+	form(method:'post') {
+		// persist changes to data points
+		if (params.'update-datapoints') {
+			def success=[]
+			def errors=[]
+			
+			database.dataPoints.each { dp ->
+				// read disabled and hidden
+				def disabled=(params."disabled-$dp.idx"=='1')
+				def hidden=(params."hidden-$dp.idx"=='1')
+				
+				// read preprocessing type
+				def preprocType=params."ptype-$dp.idx" as Integer
+				if (preprocType==null) return
+				
+				// read preprocessing parameter
+				def preprocParam=params."pparam-$dp.idx"
+				if (preprocParam) {
+					preprocParam=TextFormat.parseNumber(preprocParam)?.doubleValue()
+					if (preprocParam==null) {
+						errors << (dp.displayName+': Der Parameter ist keine gültige Zahl.')
+						return
+					}
+				} else {
+					preprocParam=null
+				}
+	
+				// validate preprocessing parameter
+				if (preprocType==1) {
+					if ((preprocParam?:0.0)<0.0) {
+						errors << (dp.displayName+': Der Parameter darf bei Delta Kompression nicht negativ sein.')
+						return
+					}
+					if (dp.id.identifier in ['PRESS_LONG', 'PRESS_SHORT']) {
+						errors << (dp.displayName+': Eine Delta Kompression ist hier nicht sinnvoll.')
+						return
+					}
+				} else if (preprocType==2) {
+					if ((preprocParam?:0.0)<0.0) {
+						errors << (dp.displayName+': Der Parameter darf bei Zeitl. Kompression nicht negativ sein.')
+						return
+					}
+				} else if (preprocType>=3 && preprocType<=5) {
+					if ((preprocParam?:0.0)<60.0) { 
+						errors << (dp.displayName+': Der Parameter darf bei Mittelw./Min./Max.-Vorverarbeitung nicht kleiner als 60 Sekunden sein.')
+						return 
+					}
+				}
+
+				// persist data point
+				def origDp=dp.clone()
+				dp.historyDisabled=disabled
+				dp.historyHidden=hidden
+				if ((dp.attributes.preprocType?:0) != preprocType)
+					dp.attributes.preprocType=preprocType
+				dp.attributes.preprocParam=preprocParam
+				// only if changed
+				if (dp!=origDp) {
+					if (utils.catchToLog(log) {
+						database.updateDataPoint dp
+						success << dp.displayName
+					}) {
+						errors << (dp.displayName+': Datenbankzugriff ist fehlgeschlagen.')
+					}
+				}
+			}
+			
+			// display errors
+			if (errors) {
+				div(class:'alert alert-danger alert-dismissible', role:'alert', style:'margin-top: 0.5em') {
+					button(type:'button', class:'close', 'data-dismiss':'alert') {
+						span { mkp.yieldUnescaped '&times;' }
+					}
+					span class:'glyphicon glyphicon-exclamation-sign'
+					mkp.yield " Folgende Fehler sind aufgetreten:"
+					errors.each { msg ->
+						br {}; mkp.yield msg
+					}
+				}
+			}
+			
+			// display success
+			if (success) {
+				div(class:'alert  alert-success alert-dismissible', role:'alert', style:'margin-top: 0.5em') {
+					button(type:'button', class:'close', 'data-dismiss':'alert') {
+						span { mkp.yieldUnescaped '&times;' }
+					}
+					span class:'glyphicon glyphicon-exclamation-sign'
+					mkp.yield " Erfolgreich geänderte Datenpunkte:"
+					success.each { msg ->
+						br {}; mkp.yield msg
+					}
+				}
+			}
+		}
+		
+		// toolbar
+		div(class:'row', style:'margin-bottom: 0.5em') {
+			// filter input
+			div(class:'col-sm-4') {
+				div(class:'input-group') {
+					String descr='Es wird nach allen Teilen des Filterausdrucks in allen Eigenschaften des ' +
+						'Datenpunktes gesucht. Wird ein Suchbegriff in | (Verkettungszeichen) eingeschlossen, ' +
+						'so wird nach exakt übereinstimmenden Eigenschaften gesucht. Die gesuchte Eigenschaft ' +
+						'darf dann keine Leerzeichen enthalten.'
+					div(class:'input-group-addon', 'data-toggle':'tooltip', title:descr) {
+						span class:'glyphicon glyphicon-filter'
+					}
+					input id:'filter-input', type:'text', class:'form-control', placeholder:'Filterausdruck',
+						'data-toggle':'tooltip', disabled:'disabled', title:descr
+					span(class:'input-group-btn') {
+						button(id:'reset-filter-btn', class:'btn btn-default', type:'button',
+							'data-toggle':'tooltip', title:'Alle Filter werden gelöscht.') {
+							span class:'glyphicon glyphicon-remove'
+						}
+					}
+				}
+			}
+			div(class:'col-sm-4') {
+			}
+			// data point actions
+			div(class:'col-sm-4') {
+				button class:'btn btn-primary btn-block', type:'submit', name:'update-datapoints', value:1, 'Übernehmen',
+					'data-toggle':'tooltip', title:'Alle Änderungen werden in der Datenbank abgespeichert.'
+			}
+		}
+		
+		// data point table
+		table(id:'dp-table', class:'table table-bordered table-condensed table-hover') {
+			thead {
+				tr {
+					th class:'hidden-xs hidden-sm hidden-md', 'Schnittstelle',
+						'data-toggle':'tooltip', title:'Über die Schnittstelle wird mit den zugehörigen Geräten kommuniziert.'
+					th 'Gerät / Kanal',
+						'data-toggle':'tooltip', title:'Dies ist der Anzeigename des Geräts und/oder des Kanals. Wenn kein ' +
+						'Anzeigename bekannt ist, wird die Adresse angezeigt.'
+					th 'Parameter',
+						'data-toggle':'tooltip', title:'Ein Kanal kann mehrere Parameter besitzen.'
+					th class:'hidden-xs hidden-sm hidden-md', 'Raum',
+						'data-toggle':'tooltip', title:'Raum des Datenpunktes'
+					th class:'hidden-xs hidden-sm hidden-md', 'Gewerk',
+						'data-toggle':'tooltip', title:'Gewerk oder Funktion des Datenpunktes'
+                    th class:'hidden-xs hidden-sm', 'Adresse',
+						'data-toggle':'tooltip', title:'Bei HomeMatic-Geräten ist der Adressaufbau "Geräteseriennummer:Kanalnummer".'
+					th 'Inaktiv',
+						'data-toggle':'tooltip', title:'Inaktive Datenpunkte werden nicht weiter aufgezeichnet.'
+					th 'Versteckt',
+						'data-toggle':'tooltip', title:'Versteckte Datenpunkte erscheinen nicht in der "Datenpunktliste".'
+					th 'Anz. Einträge', class:'hidden-xs hidden-sm hidden-md',
+						'data-toggle':'tooltip', title:'Die erste Zahl gibt die Gesamtanzahl der Datenbankeinträge an, die zweite ' +
+						'die Anzahl der Einträge in den letzten 24 Stunden.'
+					th 'Vorverarb.',
+						'data-toggle':'tooltip', title:'Rohdaten können mit verschiedenen Verfahren verdichtet werden.'
+					th 'Parameter',
+						'data-toggle':'tooltip', title:'Manche Verdichtungsverfahren können mit einem Parameter konfiguriert werden.'
+				}
+			}
+			tbody {
+				database.dataPoints.each { dp ->
+					tr {
+						td class:'hidden-xs hidden-sm hidden-md', dp.id.interfaceId
+						td dp.attributes.displayName?:dp.id.address
+						td dp.id.identifier
+						td class:'hidden-xs hidden-sm hidden-md', dp.attributes.room
+						td class:'hidden-xs hidden-sm hidden-md', dp.attributes.function
+                        td class:'hidden-xs hidden-sm', dp.id.address
+						td {
+							// history disabled?
+							def checked=dp.historyDisabled?[checked:'checked']:[:]
+							input(type:'checkbox', class:'form-control', name:'disabled-'+dp.idx, value:1, *:checked)
+						}
+						td {
+							// history hidden?
+							def checked=dp.historyHidden?[checked:'checked']:[:]
+							input(type:'checkbox', class:'form-control', name:'hidden-'+dp.idx, value:1, *:checked)
+						}
+						def total=database.getCount(dp, null, null)
+						def last24h=database.getCount(dp, new Date(System.currentTimeMillis()-24*3600*1000), null)
+						td class:'hidden-xs hidden-sm hidden-md', "$total / $last24h"
+						td {
+							select(class:'form-control', name:'ptype-'+dp.idx, size:1) {
+								preprocTypes.each { idx, name ->
+									def selected=(idx==dp.attributes.preprocType)?[selected:'selected']:[:]
+									option(value: idx, *:selected, name)
+								}	
+							}
+						}
+						td {
+							input type:'text', class:'form-control', name:'pparam-'+dp.idx, 
+								value:TextFormat.formatNumber(dp.attributes.preprocParam), size:5, maxlength:20
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+renderer.end={
+    script { mkp.yieldUnescaped($/
+		// reset filter
+		$('#reset-filter-btn').on('click', function(e) {
+			$('#filter-input').val('');
+			$('#dp-table tbody tr').css('display', '');
+		});
+		
+		// filter
+		var filter=function(e) {
+			var terms=$(this).val().toLowerCase().split(/\s+/);
+			$('#dp-table tbody tr').each(function() {
+				// | separated cell contents
+				var content='|'+$(this).children('td').slice(0,6).map(function() {
+					return $(this).text() }).get().join('|').toLowerCase()+'|';
+				if (terms.every(t => content.indexOf(t) >= 0))
+					$(this).css('display', '');
+				else 
+					$(this).css('display', 'none');
+			});
+		};
+		$('#filter-input').on('keyup', _.debounce(filter, 500));
+		// enable filter
+		$('#filter-input').prop('disabled', false);
+	/$) }
+}
+
+// render page
+renderer.render()

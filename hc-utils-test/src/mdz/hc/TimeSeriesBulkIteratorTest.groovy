@@ -19,11 +19,15 @@ package mdz.hc;
 
 import java.util.Date;
 
-import groovy.util.GroovyTestCase;
+import org.junit.Test
+
 import mdz.hc.persistence.HistoryStorage
+import mdz.hc.timeseries.TimeSeries
+import mdz.hc.timeseries.ChunkIterator
 
-class TimeSeriesBulkIteratorTest extends GroovyTestCase {
+class TimeSeriesBulkIteratorTest {
 
+	@Test
 	public void testEmptyMiddle() {
 		DataPoint dataPoint=new DataPoint()
 		dataPoint.setHistoryString(false)
@@ -36,20 +40,20 @@ class TimeSeriesBulkIteratorTest extends GroovyTestCase {
 		// leere Zeitreihe
 
 		TimeSeries ts3=new TimeSeries(dataPoint)
-		ts3.add(2*TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH, 1.0, 2)
-		ts3.add(2*TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH+1, 1.5, 4)
+		ts3.add(2*ChunkIterator.DEFAULT_CHUNK_LENGTH, 1.0, 2)
+		ts3.add(2*ChunkIterator.DEFAULT_CHUNK_LENGTH+1, 1.5, 4)
 		
 		HistoryStorage hs={ DataPoint dp, Date begin, Date end ->
 			switch (begin.time) {
 				case 0: ts1; break
-				case TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH: ts2; break
-				case 2*TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH: ts3; break
+				case ChunkIterator.DEFAULT_CHUNK_LENGTH: ts2; break
+				case 2*ChunkIterator.DEFAULT_CHUNK_LENGTH: ts3; break
 				default: fail()
 			}
 		} as HistoryStorage
 
-		TimeSeriesBulkIterator it=new TimeSeriesBulkIterator(dataPoint, hs, 
-			new Date(0), new Date(2*TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH+2))
+		ChunkIterator it=new ChunkIterator(dataPoint, hs, 
+			new Date(0), new Date(2*ChunkIterator.DEFAULT_CHUNK_LENGTH+2))
 		
 		assert it.hasNext()
 		ProcessValue pv=it.next()
@@ -65,19 +69,20 @@ class TimeSeriesBulkIteratorTest extends GroovyTestCase {
 		
 		assert it.hasNext()
 		pv=it.next()
-		assert pv.timestamp.time==2*TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH
+		assert pv.timestamp.time==2*ChunkIterator.DEFAULT_CHUNK_LENGTH
 		assert pv.value==1.0
 		assert pv.state==2
 		
 		assert it.hasNext()
 		pv=it.next()
-		assert pv.timestamp.time==2*TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH+1
+		assert pv.timestamp.time==2*ChunkIterator.DEFAULT_CHUNK_LENGTH+1
 		assert pv.value==1.5
 		assert pv.state==4
 		
 		assert !it.hasNext()
 	}
 	
+	@Test
 	public void testStartWithEmpty() {
 		DataPoint dataPoint=new DataPoint()
 		dataPoint.setHistoryString(false)
@@ -86,24 +91,24 @@ class TimeSeriesBulkIteratorTest extends GroovyTestCase {
 		// leere Zeitreihe
 
 		TimeSeries ts2=new TimeSeries(dataPoint)
-		ts2.add(TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH, 0.0, 0)
-		ts2.add(TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH+1, 0.5, 1)
+		ts2.add(ChunkIterator.DEFAULT_CHUNK_LENGTH, 0.0, 0)
+		ts2.add(ChunkIterator.DEFAULT_CHUNK_LENGTH+1, 0.5, 1)
 
 		TimeSeries ts3=new TimeSeries(dataPoint)
-		ts3.add(2*TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH, 1.0, 2)
-		ts3.add(2*TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH+1, 1.5, 3)
+		ts3.add(2*ChunkIterator.DEFAULT_CHUNK_LENGTH, 1.0, 2)
+		ts3.add(2*ChunkIterator.DEFAULT_CHUNK_LENGTH+1, 1.5, 3)
 		
 		HistoryStorage hs={ DataPoint dp, Date begin, Date end ->
 			switch (begin.time) {
 				case 0: ts1; break
-				case TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH: ts2; break
-				case 2*TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH: ts3; break
+				case ChunkIterator.DEFAULT_CHUNK_LENGTH: ts2; break
+				case 2*ChunkIterator.DEFAULT_CHUNK_LENGTH: ts3; break
 				default: fail()
 			}
 		} as HistoryStorage
 
-		TimeSeriesBulkIterator it=new TimeSeriesBulkIterator(dataPoint, hs,
-			new Date(0), new Date(2*TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH+2))
+		ChunkIterator it=new ChunkIterator(dataPoint, hs,
+			new Date(0), new Date(2*ChunkIterator.DEFAULT_CHUNK_LENGTH+2))
 		assert it.hasNext()
 		assert it.next().value==0.0
 		assert it.hasNext()
@@ -115,17 +120,18 @@ class TimeSeriesBulkIteratorTest extends GroovyTestCase {
 		assert !it.hasNext()
 	}
 
+	@Test
 	public void testEndWithEmpty() {
 		DataPoint dataPoint=new DataPoint()
 		dataPoint.setHistoryString(false)
 
 		TimeSeries ts1=new TimeSeries(dataPoint)
-		ts1.add(TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH, 0.0, 0)
-		ts1.add(TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH+1, 0.5, 1)
+		ts1.add(ChunkIterator.DEFAULT_CHUNK_LENGTH, 0.0, 0)
+		ts1.add(ChunkIterator.DEFAULT_CHUNK_LENGTH+1, 0.5, 1)
 
 		TimeSeries ts2=new TimeSeries(dataPoint)
-		ts2.add(2*TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH, 1.0, 2)
-		ts2.add(2*TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH+1, 1.5, 3)
+		ts2.add(2*ChunkIterator.DEFAULT_CHUNK_LENGTH, 1.0, 2)
+		ts2.add(2*ChunkIterator.DEFAULT_CHUNK_LENGTH+1, 1.5, 3)
 
 		TimeSeries ts3=new TimeSeries(dataPoint)
 		// leere Zeitreihe
@@ -133,14 +139,14 @@ class TimeSeriesBulkIteratorTest extends GroovyTestCase {
 		HistoryStorage hs={ DataPoint dp, Date begin, Date end ->
 			switch (begin.time) {
 				case 0: ts1; break
-				case TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH: ts2; break
-				case 2*TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH: ts3; break
+				case ChunkIterator.DEFAULT_CHUNK_LENGTH: ts2; break
+				case 2*ChunkIterator.DEFAULT_CHUNK_LENGTH: ts3; break
 				default: fail()
 			}
 		} as HistoryStorage
 
-		TimeSeriesBulkIterator it=new TimeSeriesBulkIterator(dataPoint, hs,
-			new Date(0), new Date(2*TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH+2))
+		ChunkIterator it=new ChunkIterator(dataPoint, hs,
+			new Date(0), new Date(2*ChunkIterator.DEFAULT_CHUNK_LENGTH+2))
 		assert it.hasNext()
 		assert it.next().value==0.0
 		assert it.hasNext()
@@ -152,6 +158,7 @@ class TimeSeriesBulkIteratorTest extends GroovyTestCase {
 		assert !it.hasNext()
 	}
 	
+	@Test
 	public void testAllEmpty() {
 		DataPoint dataPoint=new DataPoint()
 		dataPoint.setHistoryString(false)
@@ -162,19 +169,20 @@ class TimeSeriesBulkIteratorTest extends GroovyTestCase {
 			ts
 		} as HistoryStorage
 
-		TimeSeriesBulkIterator it=new TimeSeriesBulkIterator(dataPoint, hs,
-			new Date(0), new Date(2*TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH+2))
+		ChunkIterator it=new ChunkIterator(dataPoint, hs,
+			new Date(0), new Date(2*ChunkIterator.DEFAULT_CHUNK_LENGTH+2))
 		assert !it.hasNext()
 	}
 	
+	@Test
 	public void testError() {
 		HistoryStorage hs={ DataPoint dp, Date begin, Date end ->
 			throw new Exception("Error")
 		} as HistoryStorage
 	
 		shouldFail NoSuchElementException.class, {
-			new TimeSeriesBulkIterator(null, hs, 
-				new Date(0), new Date(2*TimeSeriesBulkIterator.DEFAULT_BULK_LENGTH+2))
+			new ChunkIterator(null, hs, 
+				new Date(0), new Date(2*ChunkIterator.DEFAULT_CHUNK_LENGTH+2))
 		}
 	}
 }

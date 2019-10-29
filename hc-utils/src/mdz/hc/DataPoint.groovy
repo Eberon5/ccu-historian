@@ -19,22 +19,32 @@ package mdz.hc
 
 import groovy.transform.EqualsAndHashCode
 import groovy.transform.AutoClone
-import groovy.transform.CompileStatic
 
 /* Note on the clone method: The objects in the attributes field are not cloned. 
  * They should therefore generally be treated as immutable.
  */
 @EqualsAndHashCode
-@CompileStatic
 @AutoClone
 public class DataPoint {
 	
 	// Bits 0... 3 were used for the interface type. 
 	// They can still be set in existing databases (<V0.7.7)!
-	static public final int FLAGS_HISTORY_HIDDEN   	= 0x00000010
-	static public final int FLAGS_HISTORY_DISABLED 	= 0x00000020
-	static public final int FLAGS_HISTORY_STRING	= 0x00000040
-
+	
+	// Data point is hidden and is not displayed by default. Set by user.
+	static public final int FLAGS_HISTORY_HIDDEN   	 = 0x00000010
+	
+	// Data point is not recorded. Set by user.
+	static public final int FLAGS_HISTORY_DISABLED 	 = 0x00000020
+	
+	// Data type of the history is string and not double. Set by interface and DataPointStorageUpdater.
+	static public final int FLAGS_HISTORY_STRING	 = 0x00000040
+	
+	// Changes of the data point value are continuous. Set by interface.
+	static public final int FLAGS_CONTINUOUS		 = 0x00000080
+	
+	// Metadata of the data point should not be synchronized. Set by user.
+	static public final int FLAGS_NO_SYNCHRONIZATION = 0x00000100
+	
 	// Attributes of Data Preprocessing
 	static public final String ATTR_PREPROC_TYPE	= 'preprocType'
 	static public final String ATTR_PREPROC_PARAM	= 'preprocParam'
@@ -44,6 +54,10 @@ public class DataPoint {
 	static public final String ATTR_ROOM			= 'room'
 	static public final String ATTR_FUNCTION		= 'function'
 	static public final String ATTR_COMMENT 		= 'comment'
+	
+	// Custom attribute
+	// A free to use attribute with JSON encoded content.
+	static public final String ATTR_CUSTOM	 		= 'custom'
 	
 	// Attributes from the HomeMatic XML-RPC interface (from device)
 	static public final String ATTR_PARAM_SET 		= 'paramSet'
@@ -60,7 +74,7 @@ public class DataPoint {
 	// Attribute values for ATTR_TYPE
 	static public final String ATTR_TYPE_BOOL	  	= 'BOOL'
 	static public final String ATTR_TYPE_ACTION    	= 'ACTION'
-	static public final String ATTR_TYPE_ALARM     	= 'ALARM' // nur bei Sys.Var.
+	static public final String ATTR_TYPE_ALARM     	= 'ALARM' // only CCU system variables
 	static public final String ATTR_TYPE_INTEGER	= 'INTEGER'
 	static public final String ATTR_TYPE_ENUM	  	= 'ENUM'
 	static public final String ATTR_TYPE_FLOAT	  	= 'FLOAT'
@@ -87,28 +101,50 @@ public class DataPoint {
 	int managementFlags
 	
 	// meta data
-	Map<String, Object> attributes = [:]
+	// (initialize attribute 'custom' with empty map.)
+	Map<String, Object> attributes = [ (ATTR_CUSTOM):[:] ]
 
-	public boolean isHistoryHidden() { (managementFlags & FLAGS_HISTORY_HIDDEN)!=0 }
+	public boolean isHistoryHidden() { 
+		getManagementFlag(FLAGS_HISTORY_HIDDEN)
+	}
 	public void setHistoryHidden(boolean isHidden) {
-		managementFlags&= ~FLAGS_HISTORY_HIDDEN
-		managementFlags|= (isHidden?FLAGS_HISTORY_HIDDEN:0)
+		setManagementFlag(FLAGS_HISTORY_HIDDEN, isHidden)
 	}
 	
-	public boolean isHistoryDisabled() { (managementFlags & FLAGS_HISTORY_DISABLED)!=0 }
+	public boolean isHistoryDisabled() { 
+		getManagementFlag(FLAGS_HISTORY_DISABLED)
+	}
 	public void setHistoryDisabled(boolean isDisabled) {
-		managementFlags&= ~FLAGS_HISTORY_DISABLED
-		managementFlags|= (isDisabled?FLAGS_HISTORY_DISABLED:0)
+		setManagementFlag(FLAGS_HISTORY_DISABLED, isDisabled)
 	}
 
-	public boolean isHistoryString() { (managementFlags & FLAGS_HISTORY_STRING)!=0 }
-	public void setHistoryString(boolean isString) {
-		managementFlags&= ~FLAGS_HISTORY_STRING
-		managementFlags|= (isString?FLAGS_HISTORY_STRING:0)
+	public boolean isHistoryString() {
+		getManagementFlag(FLAGS_HISTORY_STRING)
 	}
-    
+	public void setHistoryString(boolean isString) {
+		setManagementFlag(FLAGS_HISTORY_STRING, isString)
+	}
+
+	public boolean isContinuous() { 
+		getManagementFlag(FLAGS_CONTINUOUS)
+	}
+	public void setContinuous(boolean continuous) {
+		setManagementFlag(FLAGS_CONTINUOUS, continuous)
+	}
+
+	public boolean isNoSynchronization() { 
+		getManagementFlag(FLAGS_NO_SYNCHRONIZATION)
+	}
+	public void setNoSynchronization(boolean noSynchronization) {
+		setManagementFlag(FLAGS_NO_SYNCHRONIZATION, noSynchronization)
+	}
+
 	public String getDisplayName() {
-		id.interfaceId+'.'+(attributes.displayName?:id.address)+'.'+id.identifier
+		if (isNoSynchronization() && attributes.displayName) {
+			attributes.displayName
+		} else {
+			id.interfaceId+'.'+(attributes.displayName?:id.address)+'.'+id.identifier
+		}
 	}
 	
 	@Override
@@ -122,5 +158,13 @@ public class DataPoint {
 			if (e.value!=null) list << ("$e.key: $e.value" as String)	
 		}
 		list.join(', ')
+	}
+	
+	private boolean getManagementFlag(int mask) {
+		(managementFlags & mask) != 0
+	}
+	private void setManagementFlag(int mask, boolean value) {
+		managementFlags&= ~mask
+		managementFlags|= (value ? mask : 0)
 	}
 }

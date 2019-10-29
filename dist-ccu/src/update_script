@@ -1,23 +1,36 @@
 #!/bin/sh
 
-ADDONNAME=ccu-historian
-ADDON_DIR=/usr/local/addons/${ADDONNAME}
+# add-on information
+ADDON_ID=ccu-historian
+ADDON_NAME="CCU-Historian"
+ADDON_DESCR_EN="Operating data acquisition for the CCU"
+ADDON_DESCR_DE="Betriebsdatenerfassung f&uuml;r die CCU"
+
+# directories
+ADDON_DIR=/usr/local/addons/${ADDON_ID}
+ETC_DIR=/usr/local/etc
 RCD_DIR=/usr/local/etc/config/rc.d
-CONFIG_DIR=/usr/local/etc/config
-WWW_DIR=${CONFIG_DIR}/addons/www/${ADDONNAME}
+WWW_DIR=/usr/local/etc/config/addons/www/${ADDON_ID}
+
+# logging to syslog is currently not supported by the CCU during the install process
 
 if [ "$1" = "" ]; then
-  echo "CCU1"
-  lcdtool "Addon not for CCU1...    "
+  echo "CCU-Historian Add-On is not for CCU1"
+  lcdtool "Add-On is not for CCU1   "
   exit 1
 elif [ "$1" = "CCU2" ]; then
-  echo "CCU2"
-  if [ "`mount | grep ubi1:user | grep /usr/local | wc -l`" -eq 0 ]; then
-    mount -t ubifs ubi1:user /usr/local
-  fi
-elif [ "$1" == "HM-RASPBERRYMATIC" ]; then
-  echo "HM-RASPBERRYMATIC"
-  mount /usr/local
+  echo "CCU-Historian Add-On is not for CCU2"
+  exit 1
+# a CCU3 currently masquerades as "RaspberryMatic". "CCU3" is currently not defined, but it can happen. 
+elif [ "$1" == "HM-RASPBERRYMATIC" -o "$1" == "CCU3" ]; then
+  echo "Installing on CCU3/RaspberryMatic"
+  mount /usr/local 2> /dev/null
+fi
+
+# stop ccu-historian, if already installed
+if [ -f $RCD_DIR/ccu-historian ]; then
+  echo "Previous installation detected"
+  $RCD_DIR/ccu-historian stop
 fi
 
 # create directories
@@ -39,15 +52,19 @@ cp -af addon/rc.d/* ${RCD_DIR}/
 # copy www directory
 cp -af addon/www/* ${WWW_DIR}/
 
+# copy config files
+cp -af addon/etc/* ${ETC_DIR}/
+
 # add menu entry
-touch ${CONFIG_DIR}/hm_addons.cfg
-if [ "$1" = "CCU2" ]; then
-  cp -af addon/ccu2/update_addon ${ADDON_DIR}/
-elif [ "$1" == "HM-RASPBERRYMATIC" ]; then
-  cp -af addon/ccurm/update_addon ${ADDON_DIR}/
-fi
-${ADDON_DIR}/update_addon ccu-historian addon/ccu-historian_addon.cfg
+cp -af addon/update_hm_addons.tcl ${ADDON_DIR}/
+${ADDON_DIR}/update_hm_addons.tcl -a ${ADDON_ID} -name "${ADDON_NAME}" -url /addons/${ADDON_ID}/config.cgi -de "${ADDON_DESCR_DE}" -en "${ADDON_DESCR_EN}"
 
 sync
+echo "Installed"
+
+# force a reboot on RM and CCU3
+if [ "$1" = "HM-RASPBERRYMATIC" ] || [ "$1" = "CCU3" ]; then
+  exit 10
+fi
 
 exit 0

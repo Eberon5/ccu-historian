@@ -1,65 +1,115 @@
-import groovy.time.TimeCategory
-import java.text.*
-import mdz.ccuhistorian.Database
+/*
+    CCU-Historian, a long term archive for the HomeMatic CCU
+    Copyright (C) 2011-2018 MDZ (info@ccu-historian.de)
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
 import groovy.transform.Field
+import java.text.*
 import java.util.logging.Logger
+import javax.servlet.http.HttpServletResponse
+import mdz.ccuhistorian.Database
+import mdz.ccuhistorian.webapp.TrendParameters
+import mdz.hc.timeseries.CombineLatestIterator
 
 @Field
 private final static log = Logger.getLogger('mdz.ccuhistorian.webapp.Csv')
 
-utils.catchToLog(log) {
-
-// Schlüsselwort überprüfen
-if (webServer.config.apiKeys)
-	if (!params.k || !webServer.config.apiKeys.contains(params.k))
-		throw new Exception('Access denied')	
-
-// Aufrufparameter auswerten
-if (!params.i)
-	throw new Exception('Page parameter i (data point id) not set or invalid')
-def dataPoint=utils.parseDataPoint(params.i, database)
-def begin=utils.parseDate(params.b)
-def duration=utils.parseDuration(params.d)
-def end=utils.parseDate(params.e)
-use (TimeCategory) {
-	if (!begin) { 
-		if (!end) end=new Date()
-		if (!duration) begin=end-1
-		else begin=end-duration
-	} else { 
-		if (!end) {
-			if (!duration) end=new Date()
-			else end=begin+duration
-}	}	}
-
-// Zeitreihe abfragen
-def timeSeries
-if (dataPoint.historyString)
-	timeSeries=database.getTimeSeriesRaw(dataPoint, begin, end)
-else
-	timeSeries=database.getTimeSeries(dataPoint, begin, end)
+// main function
+def ex=utils.catchToLog(log) {
+	def startTime=System.currentTimeMillis()
+	log.finer 'Web server: Exporting CSV'
 	
-// CSV-Datei erstellen
-def dateFormat=new SimpleDateFormat('dd.MM.yyyy HH:mm:ss,SSS')
-def displayName=(dataPoint.attributes.displayName?:dataPoint.id.address)+'.'+dataPoint.id.identifier
-def sb=new StringBuilder()
-sb << displayName << ';;\n'
-sb << 'Zeitstempel;Wert;Status\n'
-def valueFormatter
-if (dataPoint.historyString) {
-	valueFormatter={ '"'+it.tr('"', '""')+'"' }
-} else {
+	// check key
+	if (webServer.config.apiKeys)
+		if (!params.k || !webServer.config.apiKeys.contains(params.k))
+			throw new Exception('Access denied')
+			
+	// parse parameters
+	TrendParameters parameters=TrendParameters.from(request, database, webServer.config.trendDesigns)
+	log.finer "Web server: Parameters: $parameters"
+	if (!parameters.groups) {
+		throw new IllegalArgumentException('Parameter dp... (data point id/s) not set')
+	}
+	def dataPoints=parameters.groups.values().dataPoints.flatten()
+
+	// get all time series
+	def timeSeries=dataPoints.collect { dataPoint ->
+		if (dataPoint.historyString || dataPoint.attributes.type=='ACTION') {
+			// without boundary values
+			database.getTimeSeriesRaw(dataPoint, parameters.timeRange.begin, parameters.timeRange.end)
+		} else {
+			// with boundary values
+			database.getTimeSeries(dataPoint, parameters.timeRange.begin, parameters.timeRange.end)
+		}
+	}
+	
+	// combine all time series into a single iterator
+	def combIt=new CombineLatestIterator(timeSeries*.iterator() as Iterator[])
+
+	// create CSV (uses german MS Excel CSV format)
+	def dateFormat=new SimpleDateFormat('dd.MM.yyyy HH:mm:ss,SSS')
+	def strBuilder=new StringBuilder()
+	
+	// header lines
+	strBuilder << ';Datenpunkt;' << dataPoints.collect { dataPoint ->
+		dataPoint.displayName
+	}.join(';') << '\n'
+	strBuilder << ';Einheit;' << dataPoints.collect { dataPoint ->
+		dataPoint.attributes.unit?:''
+	}.join(';') << '\n'
+
+	strBuilder << 'Zeistempel;Status;' << dataPoints.collect { 'Wert' }.join(';') << '\n'
+	
+	// data lines
 	def numberFormat=new DecimalFormat('#,##0.###')
-	valueFormatter={ numberFormat.format(it) }
-}
-timeSeries.each {
-	sb << dateFormat.format(it.timestamp) << ';' << valueFormatter(it.value) << ';' << it.state << '\n'
+	combIt.each { pv ->
+		strBuilder << dateFormat.format(pv.timestamp) << ';' << pv.state << ';'
+		strBuilder << pv.value.collect { v ->
+			if (v.is(null)) {
+				''
+			} else if (v in Number) {
+				numberFormat.format(v)
+			} else {
+				'"'+v.toString().tr('"', '""')+'"'
+			}
+		}.join(';')
+		strBuilder << '\n'
+	}
+
+	// send CSV file
+	def fileName
+	if (dataPoints.size()==1) {
+		fileName=dataPoints[0].displayName.replaceAll(/[^a-zA-Z0-9_]/, '_')+'.csv'
+	} else {
+		fileName='historian.csv'
+	}
+	response.contentType='text/csv; charset=windows-1252'
+	response.setHeader 'Content-disposition', "attachment; filename=$fileName"
+	def outWriter=new OutputStreamWriter(sout, 'windows-1252')
+	try {
+		outWriter << strBuilder
+	} finally {
+		outWriter.close()
+	}
+	
+	log.finer "Web server: CSV export generated in ${System.currentTimeMillis()-startTime}ms"
 }
 
-// CSV-Datei verschicken
-def fileName=displayName.replaceAll(/[^a-zA-Z0-9_]/, '_')+'.csv'
-response.contentType='text/csv'
-response.setHeader 'Content-disposition', "attachment; filename=$fileName"
-out << sb
-
-} // catchToLog
+// signal error
+if (ex) {
+	utils.catchToLog(log) {
+		response.sendError(HttpServletResponse.SC_BAD_REQUEST, ex.message?:ex.class.name)
+	}
+}

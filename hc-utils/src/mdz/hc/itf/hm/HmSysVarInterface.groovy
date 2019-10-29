@@ -24,7 +24,6 @@ import groovy.util.logging.Log
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import mdz.Exceptions
-import mdz.Utilities
 import mdz.eventprocessing.BasicProducer
 import mdz.hc.itf.BrowseSupport
 import mdz.hc.itf.Interface
@@ -90,14 +89,16 @@ public class HmSysVarInterface extends BasicProducer<RawEvent> implements Interf
 		dps.each { DataPoint dp ->
 			DataPoint foundDp=systemVariables.find { it.id==dp.id }
 			if (foundDp) {
+				dp.historyString=(foundDp.attributes.type=='STRING')
 				dp.attributes.displayName=foundDp.attributes.displayName
 				dp.attributes.maximum=foundDp.attributes.maximum
 				dp.attributes.unit=foundDp.attributes.unit
 				dp.attributes.minimum=foundDp.attributes.minimum
 				dp.attributes.operations=foundDp.attributes.operations
 				dp.attributes.type=foundDp.attributes.type
-			} else
-				log.warning "Unknown system variable $dp.id" 
+			} else {
+				log.warning "Unknown system variable $dp.id"
+			} 
 		}
 	}
 	

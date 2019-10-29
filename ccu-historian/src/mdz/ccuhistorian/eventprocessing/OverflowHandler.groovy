@@ -19,7 +19,6 @@ package mdz.ccuhistorian.eventprocessing
 
 import java.util.Map
 import java.util.logging.Level
-import groovy.transform.CompileStatic
 import groovy.util.logging.Log
 import mdz.eventprocessing.BasicProducer
 import mdz.eventprocessing.Processor
@@ -29,9 +28,7 @@ import mdz.hc.ProcessValue
 import mdz.hc.persistence.HistoryStorage
 import mdz.ccuhistorian.Main
 import mdz.Exceptions
-import mdz.Utilities
 
-@CompileStatic
 @Log
 public class OverflowHandler extends BasicProducer<Event> implements Processor<Event, Event> {
 

@@ -20,9 +20,7 @@ package mdz.ccuhistorian
 import java.util.logging.Logger
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ScheduledFuture
-import groovy.transform.CompileStatic
 import groovy.util.logging.Log
-import mdz.hc.TimeSeries
 import mdz.eventprocessing.Buffer
 import mdz.eventprocessing.Consumer
 import mdz.hc.Event
@@ -33,6 +31,7 @@ import mdz.hc.itf.Interface
 import mdz.hc.itf.SubscriptionSupport
 import mdz.hc.itf.Manager
 import mdz.hc.persistence.Storage
+import mdz.hc.timeseries.TimeSeries
 import mdz.Exceptions
 import mdz.ccuhistorian.eventprocessing.DataPointStorageUpdater
 import mdz.ccuhistorian.eventprocessing.FirstArchived
@@ -41,7 +40,6 @@ import mdz.ccuhistorian.eventprocessing.OverflowHandler
 import mdz.ccuhistorian.eventprocessing.Preprocessor
 
 @Log
-@CompileStatic
 class Historian implements Runnable {
 
 	private static final long DEFAULT_START_DELAY = 2000 // ms
@@ -83,7 +81,7 @@ class Historian implements Runnable {
 		buffer.addConsumer dataPointStorageUpdater  
 		interfaceManager.addConsumer buffer 
 		
-		database.getOnReadListener() << { buffer.purge() }
+		database.onReadListener << { buffer.purge() }
 		
 		if (config.counters!=null)
 			overflowHandler.counters=config.counters
@@ -100,88 +98,70 @@ class Historian implements Runnable {
 	@Override
 	public void run() {
 		Exceptions.catchToLog(log) {
-			updateSubscriptionsAndProperties();
-			updateWithoutSubscriptionSupport();
-			base.executor.schedule this, config.metaCycle, TimeUnit.MILLISECONDS
+			updateDataPointMeta();
 		}
+		base.executor.schedule this, config.metaCycle, TimeUnit.MILLISECONDS
 	}
 
-	private void updateSubscriptionsAndProperties() {
-		// update properties of interfaces subscription and browse support
-		List<Interface> interfaces=[]
-		interfaceManager.interfaceNames.each { String name ->
-			Interface itf=interfaceManager[name]
-			if ((itf instanceof SubscriptionSupport) && (itf instanceof BrowseSupport))
-				interfaces << itf
-		}
-		log.finer "Historian: Interfaces with subscription and browse support: ${interfaces.name.join(', ')}"
-
-		interfaces.each { Interface itf ->
-			log.fine "Historian: Updating data point properties of interface $itf.name"
-			List<DataPoint> itfDps=((BrowseSupport)itf).getAllDataPoints(config.metaCycle-1).collect {	new DataPoint(id: it) }
-			itf.updateProperties(itfDps, config.metaCycle-1)
-			List<DataPoint> dbDps=database.getDataPointsOfInterface(itf.name)
-			itfDps.each { DataPoint itfDp ->
-				database.normalizeDataPoint itfDp
-				DataPoint dbDp=dbDps.find { it.id==itfDp.id }
-				if (dbDp) {
-					DataPoint old=(DataPoint) dbDp.clone()
-					dbDp.attributes.putAll itfDp.attributes
-					if (dbDp!=old)
-						Exceptions.catchToLog(log) {
-							database.updateDataPoint dbDp
-						}
-				} else {
-					log.info "Historian: Creating data point $itfDp.id"
-					Exceptions.catchToLog(log) {
-						itfDp.historyString=itfDp.attributes.type=='STRING'
-						database.createDataPoint itfDp
-					}
+	private void updateDataPointMeta() {
+		interfaceManager.interfaces.each { name, itf ->
+			Exceptions.catchToLog(log) {
+				if (itf instanceof BrowseSupport) {
+					browse itf
+				}
+				update itf
+				if (itf instanceof SubscriptionSupport) {
+					subscribe itf
 				}
 			}
-			// deactivate missing data points
-			dbDps.findAll { !it.historyDisabled }.each { DataPoint dbDp ->
-				DataPoint itfDp=itfDps.find { dbDp.id==it.id }
-				if (!itfDp) {
-					log.info "Historian: Disabling data point $dbDp.id"
-					dbDp.historyDisabled=true
-					Exceptions.catchToLog(log) {
-						database.updateDataPoint dbDp
-					}
-				}
-			}
-			
-			log.fine "Historian: Updating subscriptions for interface $itf.name"
-			((SubscriptionSupport)itf).setSubscription(
-				(List)database.getDataPointsOfInterface(itf.name).findAll { !it.historyDisabled	}
-			)
 		}
 	}
+	
+	private void browse(Interface itf) {
+		log.finer "Historian: Browsing interface: $itf.name"
+		List<DataPoint> itfDps=((BrowseSupport)itf).getAllDataPoints(config.metaCycle-1).collect {	new DataPoint(id: it) }
+		List<DataPoint> dbDps=database.getDataPointsOfInterface(itf.name)
 		
-	private void updateWithoutSubscriptionSupport() {
-		// update properties of interfaces with no subscription support
-		List<Interface> interfaces=[]
-		interfaceManager.interfaceNames.each { String name ->
-			Interface itf=interfaceManager[name]
-			if (!(itf instanceof SubscriptionSupport))
-				interfaces << itf
-		}
-		log.finer "Historian: Interfaces with no subscription support: ${interfaces.name.join(', ')}"
-		List<DataPoint> dataPoints=[]
-		interfaces.each { Interface itf ->
-			dataPoints.addAll(
-				database.getDataPointsOfInterface(itf.name).findAll { !it.historyDisabled }
-			)
+		// create new data points
+		itfDps.each { DataPoint itfDp ->
+			DataPoint dbDp=dbDps.find { it.id==itfDp.id }
+			if (dbDp==null) {
+				log.info "Historian: Creating data point $itfDp.id"
+				database.createDataPoint itfDp
+			}
 		}
 
-		log.fine 'Historian: Updating data point properties'
-		List oldDataPoints=dataPoints.collect { it.clone() }
+		// deactivate missing data points
+		dbDps.findAll { !it.historyDisabled }.each { DataPoint dbDp ->
+			DataPoint itfDp=itfDps.find { dbDp.id==it.id }
+			if (itfDp==null) {
+				log.info "Historian: Disabling data point $dbDp.id"
+				dbDp.historyDisabled=true
+				database.updateDataPoint dbDp
+			}
+		}
+	}
+
+	private void update(Interface itf) {
+		log.finer "Historian: Updating data points of interface: $itf.name"
+		
+		List<DataPoint> dataPoints=database.getDataPointsOfInterface(itf.name).findAll {
+			!it.historyDisabled && !it.noSynchronization
+		}
+		List<DataPoint> oldDataPoints=dataPoints.collect { (DataPoint)it.clone() }
 		interfaceManager.updateProperties(dataPoints, config.metaCycle-1)
 		dataPoints.eachWithIndex { DataPoint dp, int index ->
-			if (dp!=oldDataPoints[index])
-				Exceptions.catchToLog(log) {
-					database.updateDataPoint dp
-				}
+			if (dp!=oldDataPoints[index]) {
+				database.updateDataPoint dp
+			}
 		}
+	}
+
+	private void subscribe(Interface itf) {
+		log.finer "Historian: Subscribing data points of interface: $itf.name"
+		
+		((SubscriptionSupport)itf).setSubscription(
+			database.getDataPointsOfInterface(itf.name).findAll { !it.historyDisabled	}
+		)
 	}
 }

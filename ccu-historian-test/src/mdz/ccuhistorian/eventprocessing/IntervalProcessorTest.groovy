@@ -17,14 +17,14 @@
 */
 package mdz.ccuhistorian.eventprocessing
 
-import groovy.util.GroovyTestCase
 import mdz.eventprocessing.Collector
 import mdz.hc.DataPoint
 import mdz.hc.DataPointIdentifier
 import mdz.hc.Event
 import mdz.hc.ProcessValue
+import org.junit.Test
 
-class IntervalProcessorTest extends GroovyTestCase {
+class IntervalProcessorTest {
 
 	Event createEvent(long ts, value, int state = ProcessValue.STATE_QUALITY_GOOD) {
 		new Event(
@@ -34,7 +34,8 @@ class IntervalProcessorTest extends GroovyTestCase {
 			)
 		)
 	}
-	
+
+	@Test	
 	public void testMaxValue() {
 		Collector c = []
 		IntervalProcessor ip = [
@@ -89,6 +90,7 @@ class IntervalProcessorTest extends GroovyTestCase {
 		assert r.every { it.pv.value == 2.0 }
 	}
 
+	@Test	
 	public void testMaxQuality() {
 		Collector c = []
 		IntervalProcessor ip = [
@@ -107,6 +109,7 @@ class IntervalProcessorTest extends GroovyTestCase {
 		assert r[0].pv.state == (ProcessValue.STATE_QUALITY_QUESTIONABLE | ProcessValue.STATE_PREPROCESSED)
 	}
 
+	@Test	
 	public void testMin() {
 		Collector c = []
 		IntervalProcessor ip = [
@@ -125,6 +128,7 @@ class IntervalProcessorTest extends GroovyTestCase {
 		assert r[0].pv.state == (ProcessValue.STATE_QUALITY_QUESTIONABLE | ProcessValue.STATE_PREPROCESSED)
 	}
 
+	@Test	
 	public void testAvgValue() {
 		Collector c = []
 		IntervalProcessor ip = [
@@ -157,6 +161,7 @@ class IntervalProcessorTest extends GroovyTestCase {
 		assert r[0].pv.state == (ProcessValue.STATE_QUALITY_GOOD | ProcessValue.STATE_PREPROCESSED)
 	}
 	
+	@Test	
 	public void testAvgWithIncompleteInterval() {
 		Collector c = []
 		IntervalProcessor ip = [
@@ -174,6 +179,7 @@ class IntervalProcessorTest extends GroovyTestCase {
 		assert r[0].pv.state == (ProcessValue.STATE_QUALITY_QUESTIONABLE | ProcessValue.STATE_PREPROCESSED)
 	}
 	
+	@Test	
 	public void testAvgQuality() {
 		Collector c = []
 		IntervalProcessor ip = [
@@ -198,6 +204,5 @@ class IntervalProcessorTest extends GroovyTestCase {
 		assert r[0].pv.timestamp.time == 20
 		assert r[0].pv.value == 30
 		assert r[0].pv.state == (ProcessValue.STATE_QUALITY_BAD | ProcessValue.STATE_PREPROCESSED)
-
 	}
 }

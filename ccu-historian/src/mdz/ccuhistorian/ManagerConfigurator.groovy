@@ -52,7 +52,7 @@ class ManagerConfigurator {
 	private final static String INTERFACE_SIMULATION_NAME = 'Sim'
 	
 	public static enum DeviceTypes {
-		CCU1, CCU2, BINRPC, XMLRPC, SIMULATION, CUSTOM_CCU 
+		CCU1, CCU2, BINRPC, XMLRPC, SIMULATION, CUSTOM_CCU, CCU3
 	}
 	
 	public static enum PlugInTypes {
@@ -102,7 +102,7 @@ class ManagerConfigurator {
 				
 				DeviceTypes type=getOption(cfg, 'type', DeviceTypes, "Device $idx: ") 
 
-				if (type==DeviceTypes.CCU1 || type==DeviceTypes.CCU2) {
+				if (type==DeviceTypes.CCU1 || type==DeviceTypes.CCU2 || type==DeviceTypes.CCU3) {
 					String address=getOption(cfg, 'address', String, "Device $idx: ") 
 					Long reinitTimeout=getOption(cfg, 'reinitTimeout', Long, "Device $idx: ", false) 
 					String prefix=getOption(cfg, 'prefix', String, "Device $idx: ", false) 
@@ -117,34 +117,34 @@ class ManagerConfigurator {
 					HmScriptClient scriptClient=new HmScriptClient(address)
 
 					if (type==DeviceTypes.CCU1) {
-						HmBinRpcInterface binRpcItfWired=new HmBinRpcInterface(
+						HmXmlRpcInterface xmlRpcItfWired=new HmXmlRpcInterface(
 							prefix+INTERFACE_WIRED_NAME, INTERFACE_WIRED_NAME, address, INTERFACE_WIRED_PORT,
-							manager.binRpcServer, scriptClient, reinitTask, manager.executor, timeout
+							manager.xmlRpcServer, scriptClient, reinitTask, manager.executor
 						)
 						if (writeAccess!=null) 
-							binRpcItfWired.writeAccess=writeAccess
-						manager.addInterface(binRpcItfWired)
+							xmlRpcItfWired.writeAccess=writeAccess
+						manager.addInterface(xmlRpcItfWired)
 					}
 					
-					HmBinRpcInterface binRpcItfRf=new HmBinRpcInterface(
+					HmXmlRpcInterface xmlRpcItfRf=new HmXmlRpcInterface(
 						prefix+INTERFACE_RF_NAME, INTERFACE_RF_NAME, address, INTERFACE_RF_PORT,
-						manager.binRpcServer, scriptClient, reinitTask, manager.executor, timeout
+						manager.xmlRpcServer, scriptClient, reinitTask, manager.executor
 					)
 					if (writeAccess!=null) 
-						binRpcItfRf.writeAccess=writeAccess
-					manager.addInterface(binRpcItfRf)
+						xmlRpcItfRf.writeAccess=writeAccess
+					manager.addInterface(xmlRpcItfRf)
 					
 					if (type==DeviceTypes.CCU1) {
-						HmBinRpcInterface binRpcItfSys=new HmBinRpcInterface(
+						HmXmlRpcInterface xmlRpcItfSys=new HmXmlRpcInterface(
 							prefix+INTERFACE_SYSTEM_NAME, INTERFACE_SYSTEM_NAME, address, INTERFACE_SYSTEM_PORT,
-							manager.binRpcServer, scriptClient, reinitTask, manager.executor, timeout
+							manager.xmlRpcServer, scriptClient, reinitTask, manager.executor
 						)
 						if (writeAccess!=null) 
-							binRpcItfSys.writeAccess=writeAccess
-						manager.addInterface(binRpcItfSys)
+							xmlRpcItfSys.writeAccess=writeAccess
+						manager.addInterface(xmlRpcItfSys)
 					}
 					
-					if (type==DeviceTypes.CCU2) {
+					if (type==DeviceTypes.CCU2 || type==DeviceTypes.CCU3) {
 						HmXmlRpcInterface hmIpItf=new HmXmlRpcInterface(
 							prefix+INTERFACE_HMIP_RF_NAME, INTERFACE_HMIP_RF_NAME, address, INTERFACE_HMIP_RF_PORT,
 							manager.xmlRpcServer, scriptClient, reinitTask, manager.executor
@@ -172,27 +172,40 @@ class ManagerConfigurator {
 
 							String name
 							int port
+							boolean binRpc
 							switch (piType) {
 								case PlugInTypes.CUXD:
 									name=INTERFACE_CUXD_NAME
 									port=INTERFACE_CUXD_PORT
+									binRpc=true
 									break
 								case PlugInTypes.HMWLGW:
 									name=INTERFACE_WIRED_NAME
 									port=INTERFACE_WIRED_PORT
+									binRpc=false
 									break
 								default:
 									throw new Exception('Plug-in not supported: '+piType)
 							}
 														
-							HmBinRpcInterface binRpcItfPi=new HmBinRpcInterface(
-								prefix+name, name, address, port,
-								manager.binRpcServer, scriptClient, reinitTask, manager.executor,
-								timeout
-							)
-							if (writeAccess!=null)
-								binRpcItfPi.writeAccess=writeAccess
-							manager.addInterface(binRpcItfPi)
+							if (binRpc) {
+								HmBinRpcInterface binRpcItfPi=new HmBinRpcInterface(
+									prefix+name, name, address, port,
+									manager.binRpcServer, scriptClient, reinitTask, manager.executor,
+									timeout
+								)
+								if (writeAccess!=null)
+									binRpcItfPi.writeAccess=writeAccess
+								manager.addInterface(binRpcItfPi)
+							} else {
+								HmXmlRpcInterface xmlRpcItfPi=new HmXmlRpcInterface(
+									prefix+name, name, address, port,
+									manager.xmlRpcServer, scriptClient, reinitTask, manager.executor
+								)
+								if (writeAccess!=null)
+									xmlRpcItfPi.writeAccess=writeAccess
+								manager.addInterface(xmlRpcItfPi)
+							}
 						}
 					}
 					
@@ -287,33 +300,39 @@ class ManagerConfigurator {
 							
 							String name
 							int port
+							boolean binRpc
 							switch (piType) {
 								case PlugInTypes.HMWLGW:
 								case PlugInTypes.BIDCOS_WIRED:
 									name=INTERFACE_WIRED_NAME
 									port=INTERFACE_WIRED_PORT
+									binRpc=false
 									break;
 								case PlugInTypes.CUXD:
 									name=INTERFACE_CUXD_NAME
 									port=INTERFACE_CUXD_PORT
+									binRpc=true
 									break
 								case PlugInTypes.BIDCOS_RF:
 									name=INTERFACE_RF_NAME
 									port=INTERFACE_RF_PORT
+									binRpc=false
 									break
 								case PlugInTypes.SYSTEM:
 									name=INTERFACE_SYSTEM_NAME
 									port=INTERFACE_SYSTEM_PORT
+									binRpc=false
 									break
 								case PlugInTypes.HMIP_RF:
 									name=INTERFACE_HMIP_RF_NAME
 									port=INTERFACE_HMIP_RF_PORT
+									binRpc=false
 									break
 								default:
 									throw new Exception('Plug-in not supported: '+piType)
 							}
 
-							if (piType!=PlugInTypes.HMIP_RF) {				
+							if (binRpc) {				
 								HmBinRpcInterface binRpcItfPi=new HmBinRpcInterface(
 									prefix+name, name, address, port,
 									manager.binRpcServer, scriptClient, reinitTask, manager.executor,
@@ -323,16 +342,22 @@ class ManagerConfigurator {
 									binRpcItfPi.writeAccess=writeAccess
 								manager.addInterface(binRpcItfPi)
 							} else {
-								HmXmlRpcInterface hmIpItf=new HmXmlRpcInterface(
+								HmXmlRpcInterface xmlRpcItfPi=new HmXmlRpcInterface(
 									prefix+name, name, address, port,
-									manager.xmlRpcServer, scriptClient, reinitTask, manager.executor
+									manager.xmlRpcServer, scriptClient, reinitTask, manager.executor,
 								)
 								if (writeAccess!=null)
-									hmIpItf.writeAccess=writeAccess
-								manager.addInterface(hmIpItf)
+									xmlRpcItfPi.writeAccess=writeAccess
+								manager.addInterface(xmlRpcItfPi)
 							}
 						}
 					}
+					
+					// watchdog
+					String watchdogProgram=getOption(cfg, 'watchdogProgram', String, "Device $idx: ", false)
+					Long watchdogCycle=getOption(cfg, 'watchdogCycle', Long, "Device $idx: ", false)
+					if (watchdogProgram && watchdogCycle)
+						new Watchdog(watchdogProgram, watchdogCycle, manager.executor, scriptClient)
 				}
 			}
 		}
